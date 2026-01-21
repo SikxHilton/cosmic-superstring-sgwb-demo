@@ -1,0 +1,13 @@
+{
+  "default_dataset_id": "pta_example_sh_nhz",
+  "datasets": [
+    {
+      "id": "pta_example_sh_nhz",
+      "label": "PTA Example (Sh, nHz) — demo dataset",
+      "path": "/data/pta_limits_example.json",
+      "format": "Sh",
+      "frequency_unit": "nHz",
+      "notes": "Built-in demo dataset. Replace with real PTA limits when available."
+    }
+  ]
+}
