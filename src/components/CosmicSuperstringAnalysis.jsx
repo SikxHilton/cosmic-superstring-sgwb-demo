@@ -24,7 +24,8 @@ import {
 } from "lucide-react";
 
 import { buildCosmologyCache, calculateOmegaGW } from "../lib/physics.js";
-import { loadPTALimitsJSON, generateMockPTALimits } from "../lib/ptaData.js";
+import { loadPTALimitsJSON } from "../lib/ptaData.js";
+import { loadLISAJSON } from "../lib/lisaData.js";
 import { kde2D, findCredibleLevels } from "../lib/analysis.js";
 
 function downloadText(filename, text, mime = "text/plain") {
@@ -57,10 +58,16 @@ const DEFAULT_SETTINGS = {
 };
 
 export default function CosmicSuperstringAnalysis() {
-  const [stage, setStage] = useState("setup"); // setup|loading|mcmc|analyzing|complete|error
+  const [stage, setStage] = useState("setup");
   const [progress, setProgress] = useState({ step: 0, totalSteps: DEFAULT_SETTINGS.nSteps, acceptanceRate: 0 });
   const [results, setResults] = useState(null);
   const [ptaData, setPtaData] = useState(null);
+  const [ptaCatalog, setPtaCatalog] = useState(null);
+  const [ptaDatasetId, setPtaDatasetId] = useState(null);
+
+  const [lisaData, setLisaData] = useState(null);
+  const [useLISA, setUseLISA] = useState(false);
+
   const [errorMsg, setErrorMsg] = useState("");
   const [showSettings, setShowSettings] = useState(false);
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
@@ -70,7 +77,7 @@ export default function CosmicSuperstringAnalysis() {
 
   const workerRef = useRef(null);
 
-  // Parallax state
+  // Parallax
   const [scrollY, setScrollY] = useState(0);
   useEffect(() => {
     let raf = 0;
@@ -101,21 +108,48 @@ export default function CosmicSuperstringAnalysis() {
     };
   }, []);
 
+  // Load PTA catalog once
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/data/pta_catalog.json");
+        const cat = await res.json();
+        setPtaCatalog(cat);
+        setPtaDatasetId(cat.default_dataset_id ?? (cat.datasets?.[0]?.id ?? null));
+      } catch (e) {
+        // fallback: if catalog missing, use single file
+        setPtaCatalog({
+          default_dataset_id: "pta_example_sh_nhz",
+          datasets: [{ id: "pta_example_sh_nhz", label: "PTA Example (fallback)", path: "/data/pta_limits_example.json" }]
+        });
+        setPtaDatasetId("pta_example_sh_nhz");
+      }
+    })();
+  }, []);
+
   const physicsOptions = useMemo(
     () => ({ Nk: settings.Nk, zMax: settings.zMax, adaptiveTol: settings.adaptiveTol, nz: 600 }),
     [settings.Nk, settings.zMax, settings.adaptiveTol]
   );
 
-  const loadPTA = async () => {
-    try {
+  const loadPTAFromCatalog = async () => {
+    if (!ptaCatalog || !ptaDatasetId) {
       const data = await loadPTALimitsJSON("/data/pta_limits_example.json");
       setPtaData(data);
       return data;
-    } catch {
-      const mock = generateMockPTALimits();
-      setPtaData(mock);
-      return mock;
     }
+    const ds = (ptaCatalog.datasets || []).find((d) => d.id === ptaDatasetId);
+    const path = ds?.path ?? "/data/pta_limits_example.json";
+    const data = await loadPTALimitsJSON(path);
+    setPtaData(data);
+    return data;
+  };
+
+  const ensureLISA = async () => {
+    if (lisaData) return lisaData;
+    const data = await loadLISAJSON("/data/lisa_noise_toy.json");
+    setLisaData(data);
+    return data;
   };
 
   const spectrumData = useMemo(() => {
@@ -128,6 +162,7 @@ export default function CosmicSuperstringAnalysis() {
       const f = ptaData.frequencies[i];
       const model = calculateOmegaGW(f, Gmu, P, physicsOptions);
       const limit = ptaData.upperLimits[i];
+
       out.push({
         logFreq: Math.log10(f),
         logOmegaModel: Math.log10(Math.max(model, 1e-60)),
@@ -142,18 +177,27 @@ export default function CosmicSuperstringAnalysis() {
     setResults(null);
     setStage("loading");
 
-    const data = await loadPTA();
+    const data = await loadPTAFromCatalog();
+    let lisa = null;
+    if (useLISA) lisa = await ensureLISA();
 
     setStage("mcmc");
     setProgress({ step: 0, totalSteps: settings.nSteps, acceptanceRate: 0 });
 
     const worker = workerRef.current;
     if (!worker) {
-      // fallback (should rarely happen)
       const { runEnsembleMCMC } = await import("../lib/mcmc.js");
       const mcmc = runEnsembleMCMC(
         data,
-        { nSteps: settings.nSteps, nWalkers: settings.nWalkers, burnIn: settings.burnIn, physicsOptions, progressEvery: settings.progressEvery },
+        {
+          nSteps: settings.nSteps,
+          nWalkers: settings.nWalkers,
+          burnIn: settings.burnIn,
+          physicsOptions,
+          progressEvery: settings.progressEvery,
+          lisaData: lisa,
+          useLISA: useLISA
+        },
         (p) => setProgress(p)
       );
 
@@ -171,8 +215,8 @@ export default function CosmicSuperstringAnalysis() {
       if (msg?.type === "PROGRESS") setProgress(msg.progress);
       else if (msg?.type === "DONE") {
         worker.removeEventListener("message", onMessage);
-        const mcmc = msg.result;
 
+        const mcmc = msg.result;
         setStage("analyzing");
         const kde = kde2D(mcmc.samples, 60, 0.18);
         const levels = findCredibleLevels(kde.densityGrid);
@@ -196,6 +240,8 @@ export default function CosmicSuperstringAnalysis() {
         burnIn: settings.burnIn,
         physicsOptions,
         progressEvery: settings.progressEvery,
+        lisaData: lisa,
+        useLISA: useLISA
       },
     });
   };
@@ -203,8 +249,18 @@ export default function CosmicSuperstringAnalysis() {
   const exportResultsJSON = () => {
     if (!results) return;
     const payload = {
-      meta: { createdAt: new Date().toISOString(), settings, ptaName: ptaData?.name ?? null },
-      mcmc: { samples: results.mcmc.samples, logProbs: results.mcmc.logProbs, acceptanceRate: results.mcmc.acceptanceRate },
+      meta: {
+        createdAt: new Date().toISOString(),
+        settings,
+        ptaName: ptaData?.name ?? null,
+        useLISA,
+        lisaName: lisaData?.name ?? null
+      },
+      mcmc: {
+        samples: results.mcmc.samples,
+        logProbs: results.mcmc.logProbs,
+        acceptanceRate: results.mcmc.acceptanceRate,
+      },
       kde: results.kde,
       levels: results.levels,
     };
@@ -227,159 +283,78 @@ export default function CosmicSuperstringAnalysis() {
     downloadText("kde_grid.csv", toCSV(results.kde.grid, ["logGmu", "logP", "density"]), "text/csv");
   };
 
-  // assets + links
   const heroUrl = `${import.meta.env.BASE_URL}hero.jpg`;
   const doiUrl = "https://doi.org/10.5281/zenodo.18323281";
   const paperUrl = "https://doi.org/10.5281/zenodo.18299204";
-
-  // parallax: adjust background position as you scroll
   const heroShift = Math.min(140, scrollY * 0.18);
 
   const css = `
 :root{
-  --bg:#070a10;
-  --text:rgba(255,255,255,.92);
-  --muted:rgba(255,255,255,.72);
-  --muted2:rgba(255,255,255,.55);
-  --panel:rgba(255,255,255,.06);
-  --panel2:rgba(255,255,255,.09);
-  --border:rgba(255,255,255,.14);
-  --shadow: 0 18px 60px rgba(0,0,0,.55);
-  --shadow2: 0 10px 30px rgba(0,0,0,.35);
-  --r:18px;
-  --accent:#60a5fa;
-  --accent2:#22d3ee;
+  --bg:#070a10; --text:rgba(255,255,255,.92); --muted:rgba(255,255,255,.72); --muted2:rgba(255,255,255,.55);
+  --panel:rgba(255,255,255,.06); --panel2:rgba(255,255,255,.09); --border:rgba(255,255,255,.14);
+  --shadow: 0 18px 60px rgba(0,0,0,.55); --shadow2: 0 10px 30px rgba(0,0,0,.35);
+  --r:18px; --accent:#60a5fa; --accent2:#22d3ee;
 }
 *{box-sizing:border-box}
-html,body{height:100%}
-body{
-  margin:0;
-  background:
-    radial-gradient(1200px 700px at 30% -10%, rgba(96,165,250,0.18), transparent 60%),
-    radial-gradient(900px 600px at 85% 0%, rgba(34,211,238,0.15), transparent 55%),
-    var(--bg);
-  color:var(--text);
-  font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,"Apple Color Emoji","Segoe UI Emoji";
-}
-a{color:var(--accent);text-decoration:none}
-a:hover{text-decoration:underline}
+body{margin:0;background:radial-gradient(1200px 700px at 30% -10%, rgba(96,165,250,0.18), transparent 60%),radial-gradient(900px 600px at 85% 0%, rgba(34,211,238,0.15), transparent 55%),var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial}
 .container{max-width:1100px;margin:0 auto;padding:24px}
-.card{
-  background:linear-gradient(180deg,var(--panel2),var(--panel));
-  border:1px solid var(--border);
-  border-radius:var(--r);
-  box-shadow:var(--shadow2);
-  backdrop-filter:blur(10px);
-}
+.card{background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--border);border-radius:var(--r);box-shadow:var(--shadow2);backdrop-filter:blur(10px)}
 .pad{padding:18px}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
-@media (max-width: 860px){.grid2{grid-template-columns:1fr}}
+@media (max-width:860px){.grid2{grid-template-columns:1fr}}
 .h1{margin:0;font-size:44px;font-weight:900;letter-spacing:-.02em}
 .h2{margin:0 0 8px 0;font-size:20px;font-weight:800}
 .p{margin:0;color:var(--muted);line-height:1.55}
 .muted{color:var(--muted2)}
 .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
 .hr{height:1px;border:none;background:rgba(255,255,255,.10);margin:14px 0}
-.badge{
-  display:inline-flex;align-items:center;gap:8px;
-  padding:8px 10px;border-radius:999px;
-  border:1px solid var(--border);
-  background:rgba(255,255,255,.06);
-  color:var(--muted);font-weight:800;
-}
-.btn{
-  appearance:none;
-  border:1px solid var(--border);
-  background:rgba(255,255,255,.06);
-  color:var(--text);
-  border-radius:14px;
-  padding:10px 14px;
-  font-weight:900;
-  cursor:pointer;
-  display:inline-flex;align-items:center;gap:8px;
-  transition:transform .08s ease, background .18s ease, border-color .18s ease, filter .18s ease;
-}
+.badge{display:inline-flex;align-items:center;gap:8px;padding:8px 10px;border-radius:999px;border:1px solid var(--border);background:rgba(255,255,255,.06);color:var(--muted);font-weight:800}
+.btn{appearance:none;border:1px solid var(--border);background:rgba(255,255,255,.06);color:var(--text);border-radius:14px;padding:10px 14px;font-weight:900;cursor:pointer;display:inline-flex;align-items:center;gap:8px;transition:transform .08s ease, background .18s ease, border-color .18s ease, filter .18s ease}
 .btn:hover{background:rgba(255,255,255,.10);border-color:rgba(255,255,255,.20)}
 .btn:active{transform:translateY(1px)}
-.btnPrimary{
-  border-color:rgba(96,165,250,.35);
-  background:linear-gradient(90deg, rgba(96,165,250,.90), rgba(34,211,238,.75));
-  color:#061018;
-}
+.btnPrimary{border-color:rgba(96,165,250,.35);background:linear-gradient(90deg, rgba(96,165,250,.90), rgba(34,211,238,.75));color:#061018}
 .btnPrimary:hover{filter:brightness(1.04)}
-.input{
-  width:100%;
-  border-radius:14px;
-  border:1px solid var(--border);
-  background:rgba(255,255,255,.06);
-  color:var(--text);
-  padding:10px 12px;
-  outline:none;
-}
-.input:focus{
-  border-color:rgba(96,165,250,.45);
-  box-shadow:0 0 0 3px rgba(96,165,250,.16);
-}
+.input{width:100%;border-radius:14px;border:1px solid var(--border);background:rgba(255,255,255,.06);color:var(--text);padding:10px 12px;outline:none}
 .range{width:100%}
-.heroWrap{
-  position:relative;
-  height: 420px;
-  overflow:hidden;
-  border-bottom:1px solid rgba(255,255,255,.10);
-}
-.heroBg{
-  position:absolute;inset:0;
-  background-image:
-    radial-gradient(800px 420px at 22% 30%, rgba(34,211,238,.16), transparent 60%),
-    radial-gradient(900px 500px at 72% 20%, rgba(96,165,250,.16), transparent 60%),
-    linear-gradient(to bottom, rgba(0,0,0,.20), rgba(0,0,0,.90)),
-    url("${heroUrl}");
-  background-size:cover;
-  background-position:center;
-  transform:translateY(0);
-  will-change: background-position;
-  filter:saturate(1.05) contrast(1.03);
-}
-.heroOverlay{
-  position:absolute;inset:0;
-  background:
-    linear-gradient(to bottom, rgba(0,0,0,.05), rgba(0,0,0,.65));
-}
-.heroContent{
-  position:relative;
-  height:100%;
-  display:flex;
-  align-items:flex-end;
-}
-.heroCard{
-  display:inline-block;
-  max-width: 920px;
-  background: rgba(0,0,0,.45);
-  border: 1px solid rgba(255,255,255,.18);
-  box-shadow: var(--shadow);
-}
-.kicker{
-  display:flex;gap:10px;flex-wrap:wrap;margin-top:12px
-}
-.smallLink{
-  display:inline-flex;align-items:center;gap:6px;
-  padding:8px 10px;border-radius:999px;
-  border:1px solid rgba(255,255,255,.16);
-  background:rgba(0,0,0,.25);
-  color:rgba(255,255,255,.85);
-  font-weight:900;
-}
+.heroWrap{position:relative;height:420px;overflow:hidden;border-bottom:1px solid rgba(255,255,255,.10)}
+.heroBg{position:absolute;inset:0;background-image:radial-gradient(800px 420px at 22% 30%, rgba(34,211,238,.16), transparent 60%),radial-gradient(900px 500px at 72% 20%, rgba(96,165,250,.16), transparent 60%),linear-gradient(to bottom, rgba(0,0,0,.20), rgba(0,0,0,.90)),url("${heroUrl}");background-size:cover;background-position:center;filter:saturate(1.15) contrast(1.10) brightness(0.92)}
+.heroOverlay{position:absolute;inset:0;background:radial-gradient(900px 420px at 50% 35%, rgba(0,0,0,.05), rgba(0,0,0,.55)),linear-gradient(to bottom, rgba(0,0,0,.10), rgba(0,0,0,.72))}
+.heroContent{position:relative;height:100%;display:flex;align-items:flex-end}
+.heroCard{display:inline-block;max-width:920px;background:rgba(0,0,0,.45);border:1px solid rgba(255,255,255,.18);box-shadow:var(--shadow)}
+.kicker{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
+.smallLink{display:inline-flex;align-items:center;gap:6px;padding:8px 10px;border-radius:999px;border:1px solid rgba(255,255,255,.16);background:rgba(0,0,0,.25);color:rgba(255,255,255,.85);font-weight:900}
 .smallLink:hover{background:rgba(255,255,255,.10);text-decoration:none}
-.spin{animation:spin 1s linear infinite}
-@keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
 `;
 
   const renderSetup = () => (
     <div className="card pad">
-      <div className="h2">Modular, Worker-Accelerated SGWB Inference Pipeline</div>
-      <p className="p">
-        Preview a spectrum with sliders, then run ensemble MCMC off-thread and compute KDE credible regions.
-      </p>
+      <div className="h2">Dataset Controls</div>
+      <div className="grid2" style={{ marginTop: 10 }}>
+        <div>
+          <div className="muted" style={{ fontWeight: 900, marginBottom: 8 }}>PTA dataset</div>
+          <select
+            className="input"
+            value={ptaDatasetId ?? ""}
+            onChange={(e) => setPtaDatasetId(e.target.value)}
+          >
+            {(ptaCatalog?.datasets ?? []).map((d) => (
+              <option key={d.id} value={d.id}>{d.label}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <div className="muted" style={{ fontWeight: 900, marginBottom: 8 }}>Include LISA (toy demo)</div>
+          <label className="badge" style={{ cursor: "pointer" }}>
+            <input
+              type="checkbox"
+              checked={useLISA}
+              onChange={(e) => setUseLISA(e.target.checked)}
+              style={{ marginRight: 8 }}
+            />
+            Use LISA likelihood
+          </label>
+        </div>
+      </div>
 
       <hr className="hr" />
 
@@ -413,19 +388,19 @@ a:hover{text-decoration:underline}
 
       <div style={{ marginTop: 16 }} className="grid2">
         <div>
-          <div className="label" style={{ fontWeight: 900, marginBottom: 8 }}>log10(Gmu)</div>
+          <div className="muted" style={{ fontWeight: 900, marginBottom: 8 }}>log10(Gmu)</div>
           <input className="range" type="range" min={-15} max={-6} step={0.05} value={logGmuPreview}
             onChange={(e) => setLogGmuPreview(parseFloat(e.target.value))} />
         </div>
         <div>
-          <div className="label" style={{ fontWeight: 900, marginBottom: 8 }}>log10(P)</div>
+          <div className="muted" style={{ fontWeight: 900, marginBottom: 8 }}>log10(P)</div>
           <input className="range" type="range" min={-4} max={0} step={0.05} value={logPPreview}
             onChange={(e) => setLogPPreview(parseFloat(e.target.value))} />
         </div>
       </div>
 
       <div style={{ marginTop: 16 }} className="row">
-        <button className="btn" onClick={async () => { setStage("loading"); await loadPTA(); setStage("setup"); }}>
+        <button className="btn" onClick={async () => { setStage("loading"); await loadPTAFromCatalog(); setStage("setup"); }}>
           Load PTA + Preview
         </button>
 
@@ -439,22 +414,22 @@ a:hover{text-decoration:underline}
         <div style={{ marginTop: 14 }} className="card pad">
           <div className="grid2">
             <div>
-              <div className="label" style={{ fontWeight: 900, marginBottom: 8 }}>MCMC Steps</div>
+              <div className="muted" style={{ fontWeight: 900, marginBottom: 8 }}>MCMC Steps</div>
               <input className="input" type="number" value={settings.nSteps}
                 onChange={(e) => setSettings({ ...settings, nSteps: parseInt(e.target.value, 10) })} />
             </div>
             <div>
-              <div className="label" style={{ fontWeight: 900, marginBottom: 8 }}>Walkers</div>
+              <div className="muted" style={{ fontWeight: 900, marginBottom: 8 }}>Walkers</div>
               <input className="input" type="number" value={settings.nWalkers}
                 onChange={(e) => setSettings({ ...settings, nWalkers: parseInt(e.target.value, 10) })} />
             </div>
             <div>
-              <div className="label" style={{ fontWeight: 900, marginBottom: 8 }}>Harmonics (Nk)</div>
+              <div className="muted" style={{ fontWeight: 900, marginBottom: 8 }}>Harmonics (Nk)</div>
               <input className="input" type="number" value={settings.Nk}
                 onChange={(e) => setSettings({ ...settings, Nk: parseInt(e.target.value, 10) })} />
             </div>
             <div>
-              <div className="label" style={{ fontWeight: 900, marginBottom: 8 }}>Max Redshift</div>
+              <div className="muted" style={{ fontWeight: 900, marginBottom: 8 }}>Max Redshift</div>
               <input className="input" type="number" value={settings.zMax}
                 onChange={(e) => setSettings({ ...settings, zMax: parseInt(e.target.value, 10) })} />
             </div>
@@ -462,19 +437,10 @@ a:hover{text-decoration:underline}
         </div>
       )}
 
-      <div style={{ marginTop: 14 }} className="card pad">
-        <div className="h2">Implementation Notes</div>
-        <ul className="p" style={{ marginTop: 8 }}>
-          <li>Replace the example PTA JSON with real NANOGrav/EPTA/PPTA limits.</li>
-          <li>For publication: increase steps/walkers and replace approximate t(z) with exact integral.</li>
-          <li>MCMC runs in a Web Worker for responsiveness; main-thread fallback is included.</li>
-        </ul>
-      </div>
-
       <div style={{ marginTop: 14 }}>
         <button className="btn btnPrimary" onClick={runAnalysis}>
           <Play size={18} />
-          Launch Bayesian Analysis
+          Launch Bayesian Analysis (PTA{useLISA ? " + LISA" : ""})
         </button>
       </div>
     </div>
@@ -579,12 +545,7 @@ a:hover{text-decoration:underline}
       <style>{css}</style>
 
       <div className="heroWrap">
-        <div
-          className="heroBg"
-          style={{
-            backgroundPosition: `center ${50 + heroShift}%`,
-          }}
-        />
+        <div className="heroBg" style={{ backgroundPosition: `center ${50 + heroShift}%` }} />
         <div className="heroOverlay" />
         <div className="heroContent">
           <div className="container" style={{ paddingBottom: 26 }}>
