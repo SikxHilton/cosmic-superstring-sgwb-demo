@@ -19,4 +19,3 @@ self.onmessage = (e) => {
     });
   }
 };
-
