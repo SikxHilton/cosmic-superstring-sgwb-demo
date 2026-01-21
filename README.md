@@ -46,4 +46,3 @@ references:
         orcid: "https://orcid.org/0009-0004-3405-7467"
     doi: "10.5281/zenodo.18299204"
     year: 2026
-LICENSE
