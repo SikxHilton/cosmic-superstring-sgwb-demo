@@ -70,7 +70,6 @@ export default function CosmicSuperstringAnalysis() {
   const [showSettings, setShowSettings] = useState(false);
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
 
-  // Preview sliders (log-space)
   const [logGmuPreview, setLogGmuPreview] = useState(-11.0);
   const [logPPreview, setLogPPreview] = useState(-2.0);
 
@@ -516,18 +515,30 @@ export default function CosmicSuperstringAnalysis() {
       {/* HERO */}
       <div
         style={{
-          height: 340,
-          backgroundImage: `linear-gradient(to bottom, rgba(0,0,0,0.55), rgba(0,0,0,0.88)), url(${heroUrl})`,
+          height: 360,
+          backgroundImage: `linear-gradient(to bottom, rgba(0,0,0,0.35), rgba(0,0,0,0.88)), url(${heroUrl})`,
           backgroundSize: "cover",
           backgroundPosition: "center",
           display: "flex",
           alignItems: "flex-end",
         }}
       >
-        <div className="container" style={{ paddingBottom: 22 }}>
-          <div className="h1">Cosmic Superstring Constraints</div>
-          <div className="subtitle">
-            PTA upper-limit likelihood + affine-invariant ensemble MCMC + Web Worker acceleration.
+        <div className="container" style={{ paddingBottom: 34 }}>
+          <div
+            className="card card-pad"
+            style={{
+              display: "inline-block",
+              maxWidth: 860,
+              background: "rgba(0,0,0,0.45)",
+              borderColor: "rgba(255,255,255,0.18)",
+            }}
+          >
+            <div className="h1" style={{ fontSize: 44 }}>
+              Cosmic Superstring SGWB Demo
+            </div>
+            <div className="subtitle" style={{ fontSize: 16 }}>
+              PTA upper-limit likelihood • ensemble MCMC • Web Worker acceleration • KDE credible regions
+            </div>
           </div>
         </div>
       </div>
