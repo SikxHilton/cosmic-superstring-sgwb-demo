@@ -29,6 +29,7 @@ export function logLikelihoodPTA(Gmu, logP, ptaData, physicsOptions = {}) {
   return logL;
 }
 
+// Optional LISA Gaussian likelihood around omega_forecast with sigma
 export function logLikelihoodLISA(Gmu, logP, lisaData, physicsOptions = {}) {
   if (!lisaData || !lisaData.frequencies?.length) return 0;
 
@@ -48,20 +49,21 @@ export function logLikelihoodLISA(Gmu, logP, lisaData, physicsOptions = {}) {
 }
 
 export function logPosterior(Gmu, logP, ptaData, options = {}) {
-  const { physicsOptions = {}, lisaData = null } = options;
+  const { physicsOptions = {}, lisaData = null, useLISA = false } = options;
+
   const lp = logPrior(Gmu, logP);
   if (!isFinite(lp)) return Number.NEGATIVE_INFINITY;
 
   const llPta = logLikelihoodPTA(Gmu, logP, ptaData, physicsOptions);
   if (!isFinite(llPta)) return Number.NEGATIVE_INFINITY;
 
-  const llLisa = logLikelihoodLISA(Gmu, logP, lisaData, physicsOptions);
+  const llLisa = useLISA ? logLikelihoodLISA(Gmu, logP, lisaData, physicsOptions) : 0;
   if (!isFinite(llLisa)) return Number.NEGATIVE_INFINITY;
 
   return lp + llPta + llLisa;
 }
 
-// Affine-invariant ensemble sampler (Goodman–Weare stretch move), ndim=2
+// Goodman–Weare style stretch move, ndim=2
 export function runEnsembleMCMC(ptaData, options = {}, onProgress = null) {
   const {
     nSteps = 2000,
@@ -69,34 +71,29 @@ export function runEnsembleMCMC(ptaData, options = {}, onProgress = null) {
     burnIn = 0.5,
     physicsOptions = {},
     lisaData = null,
+    useLISA = false,
     progressEvery = 50,
-    rng = Math.random
+    rng = Math.random,
   } = options;
 
-  const postOpts = { physicsOptions, lisaData };
+  const postOpts = { physicsOptions, lisaData, useLISA };
 
   let walkers = Array.from({ length: nWalkers }, () => ({
     Gmu: 1e-11 * Math.exp(0.3 * (rng() - 0.5)),
     logP: -2 + 0.5 * (rng() - 0.5),
-    logProb: Number.NEGATIVE_INFINITY
+    logProb: Number.NEGATIVE_INFINITY,
   }));
 
   for (let w = 0; w < nWalkers; w++) {
-    walkers[w].logProb = logPosterior(
-      walkers[w].Gmu,
-      walkers[w].logP,
-      ptaData,
-      postOpts
-    );
+    walkers[w].logProb = logPosterior(walkers[w].Gmu, walkers[w].logP, ptaData, postOpts);
   }
 
   const samples = [];
   const logProbs = [];
-
   const a = 2.0;
+
   let acceptances = 0;
   let totalMoves = 0;
-
   const burnStart = Math.floor(nSteps * burnIn);
 
   for (let step = 0; step < nSteps; step++) {
@@ -112,15 +109,10 @@ export function runEnsembleMCMC(ptaData, options = {}, onProgress = null) {
       const proposed = {
         Gmu: comp.Gmu + z * (current.Gmu - comp.Gmu),
         logP: comp.logP + z * (current.logP - comp.logP),
-        logProb: Number.NEGATIVE_INFINITY
+        logProb: Number.NEGATIVE_INFINITY,
       };
 
-      proposed.logProb = logPosterior(
-        proposed.Gmu,
-        proposed.logP,
-        ptaData,
-        postOpts
-      );
+      proposed.logProb = logPosterior(proposed.Gmu, proposed.logP, ptaData, postOpts);
 
       const logAcceptRatio = Math.log(z) + (proposed.logProb - current.logProb);
 
@@ -140,7 +132,7 @@ export function runEnsembleMCMC(ptaData, options = {}, onProgress = null) {
       onProgress({
         step,
         totalSteps: nSteps,
-        acceptanceRate: acceptances / Math.max(1, totalMoves)
+        acceptanceRate: acceptances / Math.max(1, totalMoves),
       });
     }
   }
@@ -151,7 +143,6 @@ export function runEnsembleMCMC(ptaData, options = {}, onProgress = null) {
     acceptanceRate: acceptances / Math.max(1, totalMoves),
     nWalkers,
     nSteps,
-    burnIn
+    burnIn,
   };
 }
-
