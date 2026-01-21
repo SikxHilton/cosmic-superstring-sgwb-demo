@@ -64,12 +64,13 @@ export default function CosmicSuperstringAnalysis() {
     totalSteps: DEFAULT_SETTINGS.nSteps,
     acceptanceRate: 0,
   });
-  const [ptaData, setPtaData] = useState(null);
   const [results, setResults] = useState(null);
+  const [ptaData, setPtaData] = useState(null);
   const [errorMsg, setErrorMsg] = useState("");
   const [showSettings, setShowSettings] = useState(false);
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
 
+  // Preview sliders (log-space)
   const [logGmuPreview, setLogGmuPreview] = useState(-11.0);
   const [logPPreview, setLogPPreview] = useState(-2.0);
 
@@ -257,21 +258,29 @@ export default function CosmicSuperstringAnalysis() {
   const heroUrl = `${import.meta.env.BASE_URL}hero.jpg`;
 
   const renderSetup = () => (
-    <div style={{ background: "white", borderRadius: 12, padding: 18 }}>
-      <h2 style={{ marginTop: 0 }}>
-        Modular, Worker-Accelerated SGWB Inference Pipeline
-      </h2>
-      <p style={{ color: "#334155" }}>
+    <div className="card card-pad">
+      <div className="h2">Modular, Worker-Accelerated SGWB Inference Pipeline</div>
+      <p className="p">
         Use sliders to preview a spectrum. Then run ensemble MCMC off-thread and
         compute KDE credible regions.
       </p>
 
+      <hr className="hr" />
+
+      <div className="h2">Live Spectrum Preview</div>
+      <div className="muted">
+        log10(Gmu)={logGmuPreview.toFixed(2)} &nbsp; log10(P)={logPPreview.toFixed(2)}
+      </div>
+
       {!ptaData ? (
-        <div style={{ display: "flex", gap: 8, alignItems: "center", color: "#475569" }}>
-          <AlertCircle size={16} /> PTA data not loaded yet. Click “Load PTA + Preview” or run analysis to auto-load.
+        <div className="row" style={{ marginTop: 10 }}>
+          <span className="badge">
+            <AlertCircle size={16} />
+            PTA data not loaded yet. Click “Load PTA + Preview” or run analysis to auto-load.
+          </span>
         </div>
       ) : (
-        <div style={{ marginTop: 12 }}>
+        <div style={{ marginTop: 14 }}>
           <ResponsiveContainer width="100%" height={280}>
             <LineChart data={spectrumData}>
               <CartesianGrid strokeDasharray="3 3" />
@@ -286,106 +295,134 @@ export default function CosmicSuperstringAnalysis() {
         </div>
       )}
 
-      <div style={{ marginTop: 14 }}>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <div>
-            <div style={{ fontWeight: 600 }}>log10(Gmu) = {logGmuPreview.toFixed(2)}</div>
-            <input
-              type="range"
-              min={-15}
-              max={-6}
-              step={0.05}
-              value={logGmuPreview}
-              onChange={(e) => setLogGmuPreview(parseFloat(e.target.value))}
-              style={{ width: "100%" }}
-            />
-          </div>
-          <div>
-            <div style={{ fontWeight: 600 }}>log10(P) = {logPPreview.toFixed(2)}</div>
-            <input
-              type="range"
-              min={-4}
-              max={0}
-              step={0.05}
-              value={logPPreview}
-              onChange={(e) => setLogPPreview(parseFloat(e.target.value))}
-              style={{ width: "100%" }}
-            />
-          </div>
+      <div style={{ marginTop: 14 }} className="grid2">
+        <div>
+          <div className="label">log10(Gmu)</div>
+          <input
+            className="range"
+            type="range"
+            min={-15}
+            max={-6}
+            step={0.05}
+            value={logGmuPreview}
+            onChange={(e) => setLogGmuPreview(parseFloat(e.target.value))}
+          />
         </div>
-
-        <div style={{ marginTop: 12, display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <button onClick={async () => { setStage("loading"); await loadPTA(); setStage("setup"); }}>
-            Load PTA + Preview
-          </button>
-          <button onClick={() => setShowSettings((s) => !s)}>
-            <Settings size={14} /> {showSettings ? "Hide" : "Show"} Advanced Settings
-          </button>
+        <div>
+          <div className="label">log10(P)</div>
+          <input
+            className="range"
+            type="range"
+            min={-4}
+            max={0}
+            step={0.05}
+            value={logPPreview}
+            onChange={(e) => setLogPPreview(parseFloat(e.target.value))}
+          />
         </div>
+      </div>
 
-        {showSettings && (
-          <div style={{ marginTop: 10, padding: 12, border: "1px solid #e2e8f0", borderRadius: 10 }}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-              <label>
-                Steps
-                <input
-                  type="number"
-                  value={settings.nSteps}
-                  onChange={(e) => setSettings({ ...settings, nSteps: parseInt(e.target.value, 10) })}
-                  style={{ width: "100%" }}
-                />
-              </label>
-              <label>
-                Walkers
-                <input
-                  type="number"
-                  value={settings.nWalkers}
-                  onChange={(e) => setSettings({ ...settings, nWalkers: parseInt(e.target.value, 10) })}
-                  style={{ width: "100%" }}
-                />
-              </label>
-              <label>
-                Nk
-                <input
-                  type="number"
-                  value={settings.Nk}
-                  onChange={(e) => setSettings({ ...settings, Nk: parseInt(e.target.value, 10) })}
-                  style={{ width: "100%" }}
-                />
-              </label>
-              <label>
-                zMax
-                <input
-                  type="number"
-                  value={settings.zMax}
-                  onChange={(e) => setSettings({ ...settings, zMax: parseInt(e.target.value, 10) })}
-                  style={{ width: "100%" }}
-                />
-              </label>
+      <div style={{ marginTop: 14 }} className="row">
+        <button
+          className="btn"
+          onClick={async () => {
+            setStage("loading");
+            await loadPTA();
+            setStage("setup");
+          }}
+        >
+          Load PTA + Preview
+        </button>
+
+        <button className="btn" onClick={() => setShowSettings((s) => !s)}>
+          <Settings size={16} />
+          {showSettings ? "Hide" : "Show"} Advanced Settings
+        </button>
+      </div>
+
+      {showSettings && (
+        <div style={{ marginTop: 12 }} className="card card-pad">
+          <div className="grid2">
+            <div>
+              <div className="label">MCMC Steps</div>
+              <input
+                className="input"
+                type="number"
+                value={settings.nSteps}
+                onChange={(e) =>
+                  setSettings({ ...settings, nSteps: parseInt(e.target.value, 10) })
+                }
+              />
+            </div>
+            <div>
+              <div className="label">Walkers</div>
+              <input
+                className="input"
+                type="number"
+                value={settings.nWalkers}
+                onChange={(e) =>
+                  setSettings({ ...settings, nWalkers: parseInt(e.target.value, 10) })
+                }
+              />
+            </div>
+            <div>
+              <div className="label">Harmonics (Nk)</div>
+              <input
+                className="input"
+                type="number"
+                value={settings.Nk}
+                onChange={(e) =>
+                  setSettings({ ...settings, Nk: parseInt(e.target.value, 10) })
+                }
+              />
+            </div>
+            <div>
+              <div className="label">Max Redshift</div>
+              <input
+                className="input"
+                type="number"
+                value={settings.zMax}
+                onChange={(e) =>
+                  setSettings({ ...settings, zMax: parseInt(e.target.value, 10) })
+                }
+              />
             </div>
           </div>
-        )}
-
-        <div style={{ marginTop: 14 }}>
-          <button onClick={runAnalysis} style={{ padding: "10px 14px" }}>
-            <Play size={16} /> Launch Bayesian Analysis
-          </button>
         </div>
+      )}
+
+      <div style={{ marginTop: 14 }} className="card card-pad">
+        <div className="h2">Implementation Notes</div>
+        <ul className="p" style={{ marginTop: 8 }}>
+          <li>Replace the example PTA JSON with real NANOGrav/EPTA/PPTA limits.</li>
+          <li>For publication: increase steps/walkers and replace approximate t(z) with exact integral.</li>
+          <li>MCMC runs in a Web Worker for responsiveness; main-thread fallback is included.</li>
+        </ul>
+      </div>
+
+      <div style={{ marginTop: 14 }}>
+        <button className="btn btn-primary" onClick={runAnalysis}>
+          <Play size={18} />
+          Launch Bayesian Analysis
+        </button>
       </div>
     </div>
   );
 
   const renderProgress = () => (
-    <div style={{ background: "white", borderRadius: 12, padding: 18, textAlign: "center" }}>
-      <Loader2 className="spin" size={48} />
-      <h3 style={{ marginBottom: 6 }}>
+    <div className="card card-pad" style={{ textAlign: "center" }}>
+      <div className="row" style={{ justifyContent: "center" }}>
+        <Loader2 className="spin" size={48} />
+      </div>
+      <div style={{ marginTop: 10 }} className="h2">
         {stage === "loading" && "Loading Data"}
         {stage === "mcmc" && "Running Ensemble MCMC (Web Worker)"}
         {stage === "analyzing" && "Computing KDE Credible Regions"}
-      </h3>
+      </div>
       {stage === "mcmc" && (
-        <div style={{ color: "#475569" }}>
-          Step {progress.step} / {progress.totalSteps} — Acceptance {(progress.acceptanceRate * 100).toFixed(1)}%
+        <div className="muted" style={{ marginTop: 6 }}>
+          Step {progress.step} / {progress.totalSteps} — Acceptance{" "}
+          {(progress.acceptanceRate * 100).toFixed(1)}%
         </div>
       )}
     </div>
@@ -399,86 +436,104 @@ export default function CosmicSuperstringAnalysis() {
 
     return (
       <div style={{ display: "grid", gap: 14 }}>
-        <div style={{ background: "white", borderRadius: 12, padding: 18 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+        <div className="card card-pad">
+          <div className="row" style={{ justifyContent: "space-between" }}>
             <div>
-              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <div className="row">
                 <CheckCircle2 size={18} />
                 <strong>Analysis Complete</strong>
               </div>
-              <div style={{ color: "#475569", marginTop: 6 }}>
-                Samples: {results.mcmc.samples.length.toLocaleString()} — Acceptance {(results.mcmc.acceptanceRate * 100).toFixed(1)}%
+              <div className="muted" style={{ marginTop: 6 }}>
+                Sampled {results.mcmc.samples.length.toLocaleString()} points — Acceptance{" "}
+                {(results.mcmc.acceptanceRate * 100).toFixed(1)}%
               </div>
             </div>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <button onClick={exportResultsJSON}><Download size={16} /> JSON</button>
-              <button onClick={exportSamplesCSV}><Download size={16} /> Samples CSV</button>
-              <button onClick={exportKDECSV}><Download size={16} /> KDE CSV</button>
+
+            <div className="row">
+              <button className="btn" onClick={exportResultsJSON}>
+                <Download size={16} /> JSON
+              </button>
+              <button className="btn" onClick={exportSamplesCSV}>
+                <Download size={16} /> Samples CSV
+              </button>
+              <button className="btn" onClick={exportKDECSV}>
+                <Download size={16} /> KDE CSV
+              </button>
             </div>
           </div>
         </div>
 
-        <div style={{ background: "white", borderRadius: 12, padding: 18 }}>
-          <h3 style={{ marginTop: 0 }}>Spectrum vs PTA Limits</h3>
-          <ResponsiveContainer width="100%" height={300}>
-            <LineChart data={spectrumData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="logFreq" />
-              <YAxis />
-              <Tooltip />
-              <Legend />
-              <Line type="monotone" dataKey="logOmegaModel" strokeWidth={2} name="Model" dot={false} />
-              <Line type="monotone" dataKey="logOmegaLimit" strokeWidth={2} strokeDasharray="5 5" name="PTA Limit" dot={false} />
-            </LineChart>
-          </ResponsiveContainer>
+        <div className="card card-pad">
+          <div className="h2">Spectrum vs PTA Limits</div>
+          <div style={{ marginTop: 10 }}>
+            <ResponsiveContainer width="100%" height={300}>
+              <LineChart data={spectrumData}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="logFreq" />
+                <YAxis />
+                <Tooltip />
+                <Legend />
+                <Line type="monotone" dataKey="logOmegaModel" strokeWidth={2} name="Model" dot={false} />
+                <Line type="monotone" dataKey="logOmegaLimit" strokeWidth={2} strokeDasharray="5 5" name="PTA Limit" dot={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
         </div>
 
-        <div style={{ background: "white", borderRadius: 12, padding: 18 }}>
-          <h3 style={{ marginTop: 0 }}>Posterior KDE (Filtered)</h3>
-          <ResponsiveContainer width="100%" height={420}>
-            <ScatterChart margin={{ top: 20, right: 60, bottom: 50, left: 70 }}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis type="number" dataKey="logGmu" domain={[-15, -6]} />
-              <YAxis type="number" dataKey="logP" domain={[-4, 0]} />
-              <Tooltip />
-              <Scatter data={filtered} fillOpacity={0.5} />
-              <ReferenceLine y={0} strokeWidth={2} />
-            </ScatterChart>
-          </ResponsiveContainer>
+        <div className="card card-pad">
+          <div className="h2">Posterior KDE (Filtered)</div>
+          <div style={{ marginTop: 10 }}>
+            <ResponsiveContainer width="100%" height={420}>
+              <ScatterChart margin={{ top: 20, right: 60, bottom: 50, left: 70 }}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis type="number" dataKey="logGmu" domain={[-15, -6]} />
+                <YAxis type="number" dataKey="logP" domain={[-4, 0]} />
+                <Tooltip />
+                <Scatter data={filtered} fillOpacity={0.5} />
+                <ReferenceLine y={0} strokeWidth={2} />
+              </ScatterChart>
+            </ResponsiveContainer>
+          </div>
         </div>
       </div>
     );
   };
 
   const renderError = () => (
-    <div style={{ background: "white", borderRadius: 12, padding: 18, color: "#b91c1c" }}>
-      <strong>Run Failed:</strong> {errorMsg || "Unknown error."}
+    <div className="card card-pad">
+      <div className="row">
+        <AlertCircle size={18} />
+        <strong>Run Failed</strong>
+      </div>
+      <div className="muted" style={{ marginTop: 6 }}>
+        {errorMsg || "Unknown error."}
+      </div>
     </div>
   );
 
   return (
-    <div style={{ minHeight: "100vh", background: "#0b0f14" }}>
+    <div style={{ minHeight: "100vh" }}>
       {/* HERO */}
       <div
         style={{
-          height: "320px",
-          backgroundImage: `linear-gradient(to bottom, rgba(0,0,0,0.65), rgba(0,0,0,0.85)), url(${heroUrl})`,
+          height: 340,
+          backgroundImage: `linear-gradient(to bottom, rgba(0,0,0,0.55), rgba(0,0,0,0.88)), url(${heroUrl})`,
           backgroundSize: "cover",
           backgroundPosition: "center",
           display: "flex",
           alignItems: "flex-end",
         }}
       >
-        <div style={{ padding: "28px", color: "white", maxWidth: "1100px", width: "100%" }}>
-          <h1 style={{ margin: 0, fontSize: "40px", fontWeight: 800 }}>Cosmic Superstring Constraints</h1>
-          <p style={{ marginTop: "10px", marginBottom: 0, opacity: 0.9 }}>
+        <div className="container" style={{ paddingBottom: 22 }}>
+          <div className="h1">Cosmic Superstring Constraints</div>
+          <div className="subtitle">
             PTA upper-limit likelihood + affine-invariant ensemble MCMC + Web Worker acceleration.
-          </p>
+          </div>
         </div>
       </div>
 
       {/* MAIN */}
-      <div style={{ maxWidth: "1100px", margin: "0 auto", padding: "24px" }}>
+      <div className="container">
         {stage === "setup" && renderSetup()}
         {(stage === "loading" || stage === "mcmc" || stage === "analyzing") && renderProgress()}
         {stage === "complete" && renderResults()}
